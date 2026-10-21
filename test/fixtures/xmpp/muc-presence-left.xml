@@ -1,0 +1,1 @@
+<presence type="unavailable" from="famille@conference.xmpp.test/Alice" xml:lang="en" to="gladys@xmpp.test/gladys"><occupant-id xmlns="urn:xmpp:occupant-id:0" id="2ALvHn/IBdxxGelqhkQlr1wwpaqxuhbhT5AHNU1uX8M="/><x xmlns="http://jabber.org/protocol/muc#user"><item jid="alice@xmpp.test/phone" role="none" affiliation="owner"/></x></presence>

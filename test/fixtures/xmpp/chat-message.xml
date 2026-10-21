@@ -1,0 +1,1 @@
+<message id="m1" type="chat" from="alice@xmpp.test/phone" xml:lang="en" to="gladys@xmpp.test"><body>Bonjour Gladys</body><active xmlns="http://jabber.org/protocol/chatstates"/><request xmlns="urn:xmpp:receipts"/></message>
