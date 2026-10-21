@@ -1,0 +1,1 @@
+<message id="off1" type="chat" from="alice@xmpp.test/phone" xml:lang="en" to="gladys@xmpp.test"><body>message hors ligne</body><delay stamp="2026-10-21T07:52:20Z" from="xmpp.test" xmlns="urn:xmpp:delay"/></message>

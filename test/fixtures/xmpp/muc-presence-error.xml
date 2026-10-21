@@ -1,0 +1,1 @@
+<presence type="error" from="famille@conference.xmpp.test/Gladys" to="gladys@xmpp.test/gladys"><error type="cancel" by="conference.xmpp.test"><item-not-found xmlns="urn:ietf:params:xml:ns:xmpp-stanzas"/></error></presence>

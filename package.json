@@ -1,8 +1,8 @@
 {
-  "name": "gladys-integration-template-js",
+  "name": "gladys-xmpp",
   "version": "1.0.0",
   "private": true,
-  "description": "Official starter template to build an external integration for Gladys Assistant with the JavaScript SDK.",
+  "description": "XMPP (Jabber) for Gladys Assistant: talk to Gladys from any XMPP client, send messages, run scenes on room messages.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -16,7 +16,8 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@gladysassistant/integration-sdk": "^0.15.0"
+    "@gladysassistant/integration-sdk": "^0.15.0",
+    "@xmpp/client": "^0.14.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
