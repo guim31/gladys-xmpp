@@ -9,15 +9,16 @@ A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
 no build step) that runs in its own sandboxed Docker container and talks to
 Gladys through
 [`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
-its only runtime dependency. It started from the official JavaScript template.
+and [`@xmpp/client`](https://github.com/xmppjs/xmpp.js), its only runtime
+dependencies. It started from the official JavaScript template.
 
 ## Commands
 
 ```bash
 npm install
 npm test                                  # node --test, the built-in runner
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test test/app.test.js              # one file
+node --test --test-name-pattern "room"    # tests whose name matches
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
@@ -32,15 +33,20 @@ pushing.
 
 ```
 index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
+src/app.js                        the integration: session loop, rooms, linking, triggers,
+                                  scene action, onSendMessage, widget, test action
+src/xmpp/connection.js            one session over @xmpp/client (TLS only, no built-in reconnect)
+src/xmpp/stanzas.js               reading/writing chat, groupchat and MUC presence stanzas
+src/xmpp/errors.js                typed errors (XmppError.kind), transient or not
 src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
-gladys-assistant-integration.json manifest: name, config_schema, actions, image...
-docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+src/texts.js                      four-language texts outside the widget (status, report, bot)
+src/widgets.js                    the "xmpp" dashboard widget
+src/store.js, src/log.js          /data persistence (atomic writes), one-line repeated failures
+gladys-assistant-integration.json manifest: communication type, receive: true, triggers, action...
+docs/{en,fr,de,es}.md             user documentation, re-hosted by Gladys (mandatory)
+test/                             node --test, fake Gladys of the SDK + fake XMPP server
+test/fixtures/xmpp/               stanzas recorded from a real Prosody 13
+test/live.test.js                 end to end against a real Prosody, skipped without XMPP_LIVE_HOST
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
 
@@ -70,8 +76,10 @@ test/                             node --test, against the SDK's fake Gladys (in
   `type: "provider"`: 5.1.0). `test/manifest.test.js` ties the manifest to the
   code (defaults, action, scene and widget handlers): change both sides
   together.
-- **User-facing text** is bilingual (English and French): action messages,
-  manifest texts, and `docs/en.md` / `docs/fr.md`, kept in sync.
+- **User-facing text** exists in English, French, German and Spanish: action
+  messages, manifest texts, what the bot writes, and `docs/en.md`,
+  `docs/fr.md`, `docs/de.md`, `docs/es.md`, kept in sync
+  (`test/i18n.test.js`).
 - **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
   in English. Tests never touch the network.
 
@@ -233,3 +241,41 @@ long, et sur un « Sie »/« Ihr… » de politesse en allemand. Le store exige 
 - Docs `en`, `fr`, `de`, `es` avec les mêmes sections.
 - Chauffe, ouverture, sécurité : ne rien rendre pilotable « comme un thermostat » ou par un assistant
   vocal quand une erreur serait dangereuse (leçon d'OctoPrint).
+
+## XMPP (cette intégration)
+
+- **Même architecture que gladys-matrix** (type `communication`, `messaging.receive: true`, liaison par code,
+  liste blanche, mêmes clés de déclencheurs `message_received` / `command_received` / `connection_lost` /
+  `connection_restored` et d'action `send_message`). Différences : le champ de l'action est `to` (adresse ou
+  salon surveillé), sorties `sent` / `error` seulement ; variables `sender` (adresse réelle) et `nickname`.
+  `contact.id` = JID nu en minuscules.
+- **`@xmpp/client` 0.14 (ISC, pas MIT)**, trois pièges contournés dans `src/xmpp/connection.js` :
+  1. il **authentifie sur un flux en clair** si le serveur ne propose pas STARTTLS (SASL PLAIN compris) :
+     l'option `credentials` (fonction) refuse tant que `entity.isSecure()` est faux ;
+  2. ses sockets TLS ne prennent **aucune option** (ni `rejectUnauthorized` ni `servername`) : le prototype de
+     `@xmpp/tls/lib/Socket.js` (utilisé aussi par STARTTLS) est enveloppé, réglage commun au processus (un
+     seul client par conteneur), `servername` = domaine du JID (RFC 6120, même si l'hôte est une IP) ;
+  3. sa **reconnexion intégrée** réessaie toutes les secondes à l'infini, même mot de passe refusé :
+     `xmpp.reconnect.stop()`, une session neuve par tentative, backoff 2 s → 60 s (5 min si identifiants ou
+     certificat refusés, 60 s si une autre connexion a pris la ressource `gladys`).
+     Le transport WebSocket est retiré (la découverte `host-meta` pourrait le choisir et contourner 1 et 2).
+- **Perte de connexion** : déclarée après une minute d'échecs. Le backoff est **plafonné à l'échéance de la
+  minute** : sans cela (relevé en réel en coupant Prosody), la tentative suivante tombait à 107 s et la perte
+  n'était annoncée qu'au bout de 2 minutes. Ping XEP-0199 du serveur toutes les 2 minutes (connexion morte
+  sans RST) ; la gestion de flux (XEP-0198) du client coupe aussi après 60 s sans accusé.
+- **Salons (XEP-0045)** : rejoints avec `<history maxstanzas="0"/>`, et tout `groupchat` portant un `delay` est
+  ignoré. Une personne est reconnue par l'**adresse réelle** de sa présence (`muc#user` `item@jid`), jamais par
+  le pseudo : il faut un salon non anonyme ou le robot modérateur. Rejoindre un salon inexistant **le crée**
+  (statut 201, verrouillé) : le robot le quitte aussitôt (il disparaît) et le signale `item-not-found`. Une
+  sortie forcée (statut 110 `unavailable`) est rejointe au ping suivant, sauf bannissement (301) ou expulsion
+  (307). Pas de salon à mot de passe.
+- Les messages `chat` reçus via un salon (JID du salon + pseudo) sont ignorés : l'expéditeur n'y est pas une
+  adresse. Messages hors ligne (`delay`) de plus de 5 min ignorés ; les autres passent avec leur date.
+- Pas d'image dans `onSendMessage` (pas de XEP-0363 dans un premier temps) : texte seul, documenté.
+- **Test réel** : `prosodyim/prosody:13.0` (l'image `prosody/prosody` de Docker Hub a 5 ans) sur un réseau
+  `gladys-test-xmpp`, alias `xmpp.test` et `conference.xmpp.test`, configuration montée en lecture seule
+  (`c2s_require_encryption`, `c2s_direct_tls_ports = { 5223 }`, composant `muc` avec
+  `muc_room_default_public_jids = true`), certificat auto-signé fait par `openssl`, comptes par
+  `prosodyctl register`. Un salon créé par un compte reste verrouillé jusqu'à sa configuration : le test
+  l'ouvre en « salon instantané » (`muc#owner`, formulaire `submit` vide). Un salon non persistant disparaît
+  quand le dernier occupant part.

@@ -30,6 +30,24 @@ Gladys before reporting a problem.
 
 In scope: the code of this repository and the Docker image it publishes.
 
+What the integration keeps and where:
+
+- The configuration (bot address, password, server, allowed people, watched
+  rooms) is stored by Gladys; the password is a `secret` field.
+- `/data/xmpp-state.json` holds the last 5 messages of the watched rooms (for
+  the widget). No message of a one-to-one conversation is stored.
+- The integration only talks to the XMPP server (TCP 5222 with STARTTLS, or
+  5223 with direct TLS; a DNS lookup of its SRV records) and to Gladys. It
+  authenticates only over an encrypted stream, verifies the certificate of the
+  server unless the user accepted a self-signed one, and never logs the
+  password.
+
+The bot passes the messages of a linked person to Gladys with the authority of
+that Gladys user, and only for the addresses of the allowed list; in a room, a
+person is recognized by the real address the room shows, never by a nickname.
+Messages are not end-to-end encrypted: the XMPP server can read them.
+
 Out of scope: Gladys Assistant itself (see its
 [security policy](https://github.com/GladysAssistant/Gladys/security/policy)),
-and the third-party services and devices the integration talks to.
+and the third-party services and devices the integration talks to (the XMPP
+server and the XMPP apps).
