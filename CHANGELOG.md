@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-21
+
 ### Added
 
 - Talk to Gladys from any XMPP (Jabber) app: each Gladys user links their XMPP
@@ -30,3 +32,6 @@ the notes of the version's GitHub Release.
   connection. Automatic reconnection, a ping every 2 minutes, offline messages
   older than 5 minutes and room history never run.
 - Texts and documentation in English, French, German and Spanish.
+
+[Unreleased]: https://github.com/guim31/gladys-xmpp/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/guim31/gladys-xmpp/releases/tag/v1.0.0
