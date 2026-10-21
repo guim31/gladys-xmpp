@@ -128,6 +128,7 @@ class FakeSession extends EventEmitter {
   drop(error = new XmppError(ERROR_KINDS.UNREACHABLE, 'ECONNRESET')) {
     if (!this.closed) {
       this.closed = true;
+      this.closeError = error;
       this.emit('closed', error);
     }
   }

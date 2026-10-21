@@ -397,3 +397,28 @@ test('parseCommand: prefix, word in lower case, the rest as arguments', () => {
   assert.equal(parseCommand('lights', '!'), null);
   assert.equal(parseCommand('! lights', '!'), null);
 });
+
+test('a session lost while joining the rooms is noticed, not left "connected"', async (t) => {
+  const server = createFakeServer();
+  server.silentRooms.add(ROOM);
+  const world = await createWorld({ server });
+  t.after(() => world.app.stop());
+  const first = server.session;
+  first.drop();
+  await world.tick(JOIN_TIMEOUT_MS);
+  await world.wake();
+  assert.equal(server.starts, 2, 'a new session was started');
+  assert.notEqual(server.session, first);
+});
+
+test('a room that did not answer is tried again at the next ping', async (t) => {
+  const server = createFakeServer();
+  server.silentRooms.add(ROOM);
+  const world = await createWorld({ server });
+  t.after(() => world.app.stop());
+  await world.tick(JOIN_TIMEOUT_MS);
+  assert.equal(world.app.rooms.get(ROOM).joined, false);
+  server.silentRooms.clear();
+  await world.tick(PING_INTERVAL_MS);
+  assert.equal(world.app.rooms.get(ROOM).joined, true);
+});

@@ -23,6 +23,8 @@ import { ERROR_KINDS, XmppError, classifyError } from './errors.js';
 
 export const CONNECT_TIMEOUT_MS = 20_000;
 export const PING_TIMEOUT_MS = 15_000;
+// A clean end of stream takes milliseconds; a dead socket would wait for the TCP timeout.
+export const STOP_TIMEOUT_MS = 2000;
 
 // Options of every TLS socket @xmpp/client opens (direct TLS and STARTTLS).
 const tlsOptions = { rejectUnauthorized: true, servername: undefined };
@@ -35,6 +37,16 @@ TlsSocket.prototype.connect = function connect(options = {}, ...rest) {
     ...rest,
   );
 };
+
+/** Drops a client at once: its socket destroyed, its stop() never awaited. */
+function abandon(xmpp) {
+  try {
+    xmpp?.socket?.socket?.destroy?.();
+  } catch {
+    // Already gone.
+  }
+  xmpp?.stop().catch(() => {});
+}
 
 /**
  * @typedef {object} SessionOptions
@@ -55,6 +67,7 @@ export class XmppSession extends EventEmitter {
     this.xmpp = null;
     this.jid = null;
     this.closed = false;
+    this.closeError = null;
   }
 
   /** Connects and authenticates; resolves with the bare JID, rejects with an XmppError. */
@@ -85,24 +98,25 @@ export class XmppSession extends EventEmitter {
       failure ??= err;
     });
     xmpp.on('stanza', (stanza) => this.emit('stanza', stanza));
-    const onAbort = () => xmpp.stop().catch(() => {});
-    signal?.addEventListener('abort', onAbort, { once: true });
+    const timeout = AbortSignal.timeout(CONNECT_TIMEOUT_MS);
+    const deadline = signal ? AbortSignal.any([signal, timeout]) : timeout;
     try {
-      const timeout = AbortSignal.timeout(CONNECT_TIMEOUT_MS);
       const address = await Promise.race([
         xmpp.start(),
         new Promise((_, reject) => {
-          timeout.addEventListener('abort', () =>
-            reject(new XmppError(ERROR_KINDS.TIMEOUT, 'No answer from the server')),
+          deadline.addEventListener(
+            'abort',
+            () => reject(new XmppError(ERROR_KINDS.TIMEOUT, 'No answer from the server')),
+            { once: true },
           );
         }),
       ]);
       this.jid = address;
     } catch (err) {
-      await xmpp.stop().catch(() => {});
+      // Never awaited: on a socket still connecting, stop() waits for the TCP
+      // timeout of the system (over 2 minutes), far beyond our own deadline.
+      abandon(xmpp);
       throw classifyError(failure ?? err);
-    } finally {
-      signal?.removeEventListener('abort', onAbort);
     }
     // From now on, any disconnection ends the session.
     xmpp.on('error', (err) => {
@@ -121,7 +135,9 @@ export class XmppSession extends EventEmitter {
       return;
     }
     this.closed = true;
-    this.xmpp?.stop().catch(() => {});
+    // Kept for a watcher that starts listening after the session ended.
+    this.closeError = error;
+    abandon(this.xmpp);
     this.emit('closed', error);
   }
 
@@ -159,20 +175,32 @@ export class XmppSession extends EventEmitter {
     }
   }
 
-  /** Leaves cleanly (unavailable presence, end of stream). */
+  /** Leaves cleanly (unavailable presence, end of stream), within STOP_TIMEOUT_MS. */
   async stop() {
     if (this.closed) {
       return;
     }
     this.closed = true;
     const { xmpp } = this;
-    try {
+    const leave = async () => {
       if (xmpp?.status === 'online') {
         await xmpp.send(xml('presence', { type: 'unavailable' }));
       }
       await xmpp?.stop();
+    };
+    let timer;
+    try {
+      await Promise.race([
+        leave(),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, STOP_TIMEOUT_MS);
+        }),
+      ]);
     } catch {
       // Already gone.
+    } finally {
+      clearTimeout(timer);
+      abandon(xmpp);
     }
   }
 }

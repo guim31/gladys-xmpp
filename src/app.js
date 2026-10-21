@@ -69,6 +69,16 @@ export const MESSAGE_TIMEOUT_MS = 4500;
 // How long a message of Gladys waits for the first connection, within that deadline.
 export const CONNECT_WAIT_MS = 2000;
 // Gladys link codes: 8 characters of an alphabet without 0/O/1/I/L.
+// Join errors worth a new attempt (the others: forbidden, not a member, banned...).
+const TRANSIENT_JOIN_ERRORS = new Set([
+  'service-unavailable',
+  'remote-server-not-found',
+  'remote-server-timeout',
+  'internal-server-error',
+  'resource-constraint',
+  'recipient-unavailable',
+  'timeout',
+]);
 const LINK_CODE = /^[A-HJ-KM-NP-Z2-9]{8}$/i;
 const MAX_TEXT_LENGTH = 4096; // the limit of publishMessage
 
@@ -87,11 +97,15 @@ export function parseCommand(text, prefix) {
 
 const defaultSleep = (ms, signal) =>
   new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
       resolve();
-    });
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 
 /**
@@ -215,7 +229,11 @@ export function registerHandlers(gladys, options = {}) {
     }
     if (room.waiter) {
       room.waiter = null;
+      if (signal?.aborted) {
+        return;
+      }
       room.failed = 'timeout';
+      room.rejoin = true; // tried again at the next ping
       logger.warn(`The room ${jid} did not answer the join`);
     }
   }
@@ -238,6 +256,8 @@ export function registerHandlers(gladys, options = {}) {
     if (presence.type === 'error') {
       if (presence.nick === room.nick && !room.joined) {
         room.failed = presence.errorCondition || 'error';
+        // The room service restarting or unreachable: tried again at the next ping.
+        room.rejoin = TRANSIENT_JOIN_ERRORS.has(room.failed);
         logger.warn(`Cannot join the watched room ${presence.room}: ${room.failed}`);
         settleJoin(room);
         refreshWidget();
@@ -309,25 +329,49 @@ export function registerHandlers(gladys, options = {}) {
       return Promise.resolve();
     }
     return new Promise((resolve) => {
-      const wait = setTimeout(resolve, ms);
-      readyWaiters.push(() => {
+      const wake = () => {
         clearTimeout(wait);
         resolve();
-      });
+      };
+      const wait = setTimeout(() => {
+        readyWaiters = readyWaiters.filter((entry) => entry !== wake);
+        resolve();
+      }, ms);
+      readyWaiters.push(wake);
     });
   }
 
-  /** Resolves with the error that ended the session (null for an abort). */
+  /**
+   * Resolves with the error that ended the session (null for an abort), pinging
+   * the server meanwhile. The session may have ended before this is called.
+   */
   function untilClosed(current, signal) {
+    const ended = (error) =>
+      error ?? new XmppError(ERROR_KINDS.UNREACHABLE, 'Connection closed by the server');
+    if (signal.aborted) {
+      return Promise.resolve(null);
+    }
+    if (current.closed) {
+      return Promise.resolve(ended(current.closeError));
+    }
+    // Ends the pings and the listeners with the session.
+    const watch = new AbortController();
+    const onAbort = () => watch.abort();
+    signal.addEventListener('abort', onAbort, { once: true });
     return new Promise((resolve) => {
-      current.once('closed', (error) =>
-        resolve(error ?? new XmppError(ERROR_KINDS.UNREACHABLE, 'Connection closed by the server')),
-      );
-      signal.addEventListener('abort', () => resolve(null), { once: true });
+      const finish = (value) => {
+        resolve(value);
+        current.off('closed', onClosed);
+        signal.removeEventListener('abort', onAbort);
+        watch.abort();
+      };
+      const onClosed = (error) => finish(ended(error));
+      current.once('closed', onClosed);
+      watch.signal.addEventListener('abort', () => finish(null), { once: true });
       (async () => {
-        while (!current.closed && !signal.aborted) {
-          await timer(PING_INTERVAL_MS, signal);
-          if (current.closed || signal.aborted) {
+        while (!watch.signal.aborted) {
+          await timer(PING_INTERVAL_MS, watch.signal);
+          if (watch.signal.aborted) {
             return;
           }
           try {
@@ -336,14 +380,14 @@ export function registerHandlers(gladys, options = {}) {
           } catch (err) {
             if (!current.closed) {
               current.stop();
-              resolve(err);
             }
+            finish(err);
             return;
           }
           for (const [jid, room] of rooms) {
             if (room.rejoin && !room.joined) {
               room.rejoin = false;
-              joinRoom(current, jid, signal).catch(() => {});
+              joinRoom(current, jid, watch.signal).catch(() => {});
             }
           }
         }

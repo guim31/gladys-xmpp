@@ -279,3 +279,9 @@ long, et sur un « Sie »/« Ihr… » de politesse en allemand. Le store exige 
   `prosodyctl register`. Un salon créé par un compte reste verrouillé jusqu'à sa configuration : le test
   l'ouvre en « salon instantané » (`muc#owner`, formulaire `submit` vide). Un salon non persistant disparaît
   quand le dernier occupant part.
+- **Relecture (21/10)** : l'événement `closed` peut partir **avant** que la boucle ne surveille la session (pendant
+  les joins) : `XmppSession.closeError` le garde, `untilClosed` le lit. Sur une socket qui en est encore à se
+  connecter, `xmpp.stop()` attend le délai TCP du système (134 s mesurées) : jamais attendu, la socket est détruite
+  (`abandon`), et `stop()` est borné à 2 s. Un salon muet ou en erreur passagère est retenté au ping suivant.
+  Choix assumés, documentés dans SECURITY.md : l'option auto-signé coupe toute vérification (pas d'épinglage
+  d'empreinte), et les adresses réelles d'un salon viennent du service MUC.

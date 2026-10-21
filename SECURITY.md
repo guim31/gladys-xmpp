@@ -47,6 +47,12 @@ that Gladys user, and only for the addresses of the allowed list; in a room, a
 person is recognized by the real address the room shows, never by a nickname.
 Messages are not end-to-end encrypted: the XMPP server can read them.
 
+Known limits, by design: the "Accept a self-signed certificate" option turns
+off the verification of the server entirely (name included), so it is meant
+for a server on the local network only; someone able to intercept that traffic
+could then get the password. In a room, the real addresses come from the room
+service: a room hosted by an untrusted server could announce false ones.
+
 Out of scope: Gladys Assistant itself (see its
 [security policy](https://github.com/GladysAssistant/Gladys/security/policy)),
 and the third-party services and devices the integration talks to (the XMPP
