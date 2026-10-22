@@ -8,8 +8,8 @@
     "de": "Sprich mit Gladys über XMPP (Jabber), sende Nachrichten und starte Szenen bei Nachrichten in Räumen.",
     "es": "Hable con Gladys desde una app XMPP (Jabber), envíe mensajes y lance escenas con mensajes de salas."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/guim31/gladys-xmpp:1.0.0",
+  "version": "1.0.1",
+  "docker_image": "ghcr.io/guim31/gladys-xmpp:1.0.1",
   "gladys_version": ">=5.1.0",
   "cover_image": "https://raw.githubusercontent.com/guim31/gladys-xmpp/main/cover.png",
   "categories": ["notifications"],

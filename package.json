@@ -1,6 +1,6 @@
 {
   "name": "gladys-xmpp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "XMPP (Jabber) for Gladys Assistant: talk to Gladys from any XMPP client, send messages, run scenes on room messages.",
   "type": "module",
